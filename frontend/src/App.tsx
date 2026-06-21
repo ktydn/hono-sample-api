@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 const API_BASE = 'https://hono-sample-api.bashi-sample-api.workers.dev'
 
@@ -7,6 +7,13 @@ interface Item {
   name: string
   description: string
   createdAt: string
+}
+
+function getInitialTheme(): boolean {
+  const stored = localStorage.getItem('theme')
+  if (stored === 'dark') return true
+  if (stored === 'light') return false
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
 function App() {
@@ -18,8 +25,15 @@ function App() {
   const [editDescription, setEditDescription] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [dark, setDark] = useState(getInitialTheme)
 
-  const fetchItems = async () => {
+  // Apply theme attribute on mount and when it changes
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+    localStorage.setItem('theme', dark ? 'dark' : 'light')
+  }, [dark])
+
+  const fetchItems = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/items`)
       if (!res.ok) throw new Error('Failed to fetch items')
@@ -30,11 +44,11 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchItems()
-  }, [])
+  }, [fetchItems])
 
   const addItem = async () => {
     if (!name.trim()) return
@@ -90,105 +104,186 @@ function App() {
     setEditDescription('')
   }
 
-  return (
-    <div className="container">
-      <h1>Hono Sample API - Frontend</h1>
-      <p className="api-info">
-        API: <code>{API_BASE}</code>
-      </p>
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') addItem()
+  }
 
+  // Format date for display
+  const formatDate = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleDateString('ja-JP', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
+  return (
+    <div className="app-wrapper">
+      {/* ── Header ─────────────────── */}
+      <header className="header">
+        <div className="header-left">
+          <h1 className="header-title">Hono Sample API</h1>
+          <p className="header-subtitle">
+            API: <code>{API_BASE}</code>
+          </p>
+        </div>
+        <button
+          className="theme-toggle"
+          onClick={() => setDark((d) => !d)}
+          aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {dark ? '\u2600\uFE0F' : '\u{1F319}'}
+        </button>
+      </header>
+
+      {/* ── Error ──────────────────── */}
       {error && (
-        <div className="error" onClick={() => setError('')}>
-          {error}
+        <div className="error-banner" onClick={() => setError('')} role="alert">
+          <span>&#x26A0;</span>
+          <span>{error}</span>
         </div>
       )}
 
-      <section className="add-section">
-        <h2>Add New Item</h2>
-        <div className="form-row">
-          <input
-            type="text"
-            placeholder="Name *"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <input
-            type="text"
-            placeholder="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-          <button onClick={addItem}>Add</button>
+      {/* ── Add Form ───────────────── */}
+      <section className="card">
+        <div className="card-header">
+          <span className="card-icon">+</span>
+          <h2>Add New Item</h2>
+        </div>
+        <div className="form-grid">
+          <div className="input-group">
+            <label htmlFor="item-name">Name</label>
+            <input
+              id="item-name"
+              className="input-field"
+              type="text"
+              placeholder="Enter item name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          </div>
+          <div className="input-group">
+            <label htmlFor="item-desc">Description (optional)</label>
+            <input
+              id="item-desc"
+              className="input-field"
+              type="text"
+              placeholder="Enter description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          </div>
+          <div className="form-actions">
+            <button className="btn btn-primary btn-full" onClick={addItem}>
+              Add Item
+            </button>
+          </div>
         </div>
       </section>
 
-      <section className="list-section">
-        <h2>Items</h2>
+      {/* ── Items List ─────────────── */}
+      <section className="card">
+        <div className="items-header">
+          <div className="card-header" style={{ marginBottom: 0 }}>
+            <span className="card-icon">&#x2630;</span>
+            <h2>Items</h2>
+          </div>
+          {!loading && (
+            <span className="items-count">{items.length} item{items.length !== 1 ? 's' : ''}</span>
+          )}
+        </div>
+
         {loading ? (
-          <p className="loading">Loading...</p>
+          <div className="loading-spinner">
+            <div className="spinner" />
+            <span>Loading items&hellip;</span>
+          </div>
         ) : items.length === 0 ? (
-          <p className="empty">No items found.</p>
+          <div className="empty-state">
+            <span className="empty-icon">&#x1F4E6;</span>
+            <span className="empty-text">No items found</span>
+          </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Name</th>
-                <th>Description</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.id}</td>
-                  <td>
-                    {editing === item.id ? (
+          <div className="item-list">
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className={`item-card${editing === item.id ? ' editing' : ''}`}
+              >
+                <span className="item-id-badge">#{item.id}</span>
+
+                <div className="item-body">
+                  {editing === item.id ? (
+                    <div className="edit-fields">
                       <input
+                        className="input-field"
                         type="text"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Name"
                       />
-                    ) : (
-                      item.name
-                    )}
-                  </td>
-                  <td>
-                    {editing === item.id ? (
                       <input
+                        className="input-field"
                         type="text"
                         value={editDescription}
                         onChange={(e) => setEditDescription(e.target.value)}
+                        placeholder="Description"
                       />
-                    ) : (
-                      item.description || '-'
-                    )}
-                  </td>
-                  <td className="actions">
-                    {editing === item.id ? (
-                      <>
-                        <button className="btn-save" onClick={() => saveEdit(item.id)}>
-                          Save
-                        </button>
-                        <button className="btn-cancel" onClick={cancelEdit}>
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button className="btn-edit" onClick={() => startEdit(item)}>
-                          Edit
-                        </button>
-                        <button className="btn-delete" onClick={() => deleteItem(item.id)}>
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="item-name">{item.name}</div>
+                      <div className="item-description">
+                        {item.description || '\u2014'}
+                      </div>
+                      {item.createdAt && (
+                        <div className="item-meta">{formatDate(item.createdAt)}</div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="item-actions">
+                  {editing === item.id ? (
+                    <>
+                      <button
+                        className="btn btn-success btn-sm"
+                        onClick={() => saveEdit(item.id)}
+                      >
+                        Save
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={cancelEdit}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => startEdit(item)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={() => deleteItem(item.id)}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </section>
     </div>
